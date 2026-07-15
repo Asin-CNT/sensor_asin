@@ -1,0 +1,231 @@
+"use client";
+import { useRef } from "react";
+import type { Point } from "@/lib/predictor";
+import {
+  Chart as ChartJS,
+  LineElement,
+  PointElement,
+  LinearScale,
+  CategoryScale,
+  Filler,
+  Tooltip,
+  Legend,
+  type ChartOptions,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
+import zoomPlugin from "chartjs-plugin-zoom";
+
+ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale, Filler, Tooltip, Legend, zoomPlugin);
+
+// 커스텀 positioner: 활성 점들 중 가장 아래(y 최대) 점의 바로 밑에 툴팁 앵커 → 점이 안 가림
+(Tooltip.positioners as any).belowLowest = function (elements: any[], eventPosition: any) {
+  if (!elements.length) return eventPosition;
+  let x = elements[0].element.x;
+  let y = elements[0].element.y;
+  for (const el of elements) if (el.element.y > y) y = el.element.y;
+  return { x, y };
+};
+
+export default function CrackCard({
+  id, label, points,
+}: { id: string; label: string; points: Point[] }) {
+  // 같은 시각의 |예측 − 실측| 차이 → 최소/최대 (표시 기간 기준)
+  const diffs = points
+    .map((p) => Math.abs(p.pred - p.actual))
+    .filter((x) => Number.isFinite(x));
+  const errMin = diffs.length ? Math.min(...diffs) : null;
+  const errMax = diffs.length ? Math.max(...diffs) : null;
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid var(--border)", borderRadius: 14,
+      padding: "16px 16px 14px", boxShadow: "var(--shadow)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 7, background: "var(--badge-bg)",
+          color: "var(--navy)", fontWeight: 600, fontSize: 13, padding: "5px 12px", borderRadius: 999,
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--orange)" }} />
+          {label}
+        </span>
+      </div>
+
+      <MiniChart points={points} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
+      
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>예측 오차 |예측−실측|</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+          {errMin != null && errMax != null
+            ? `${errMin.toFixed(2)}–${errMax.toFixed(2)}mm`
+            : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const C_ACTUAL = "#5a67b8"; // 실측 (파랑, --line)
+const C_PRED = "#e11d48";   // 예측 · 우리 모델 (빨강)
+
+function MiniChart({ points }: { points: Point[] }) {
+  const H = 220;
+  const chartRef = useRef<ChartJS<"line"> | null>(null);
+  if (!points.length) {
+    return <div style={{ height: H, display: "grid", placeItems: "center", color: "var(--muted)", fontSize: 13 }}>데이터 없음</div>;
+  }
+
+  const labels = points.map((p) => p.ds.slice(5, 10));
+
+  const data = {
+    labels,
+    datasets: [
+      // 95% 구간 상단 (lo까지 채워서 음영 표현)
+      {
+        label: "상한",
+        data: points.map((p) => p.hi),
+        borderColor: "transparent",
+        backgroundColor: "rgba(236,106,52,.12)",
+        pointRadius: 0,
+        fill: "+1", // 다음 데이터셋(하한)까지 채움
+        tension: 0.25,
+      },
+      {
+        label: "하한",
+        data: points.map((p) => p.lo),
+        borderColor: "transparent",
+        backgroundColor: "transparent",
+        pointRadius: 0,
+        fill: false,
+        tension: 0.25,
+      },
+      // 3일 예측 (우리 모델 · 빨강 점선)
+      {
+        label: "아신씨엔티 모델",
+        data: points.map((p) => p.pred),
+        borderColor: C_PRED,
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: C_PRED,
+        pointBorderColor: C_PRED,
+        fill: false,
+        tension: 0.25,
+      },
+      // 실측 (파란 실선)
+      {
+        label: "실제 측정 데이터",
+        data: points.map((p) => p.actual),
+        borderColor: C_ACTUAL,
+        borderWidth: 1.8,
+        pointRadius: (ctx: any) => (ctx.dataIndex === points.length - 1 ? 3.4 : 0),
+        pointHoverRadius: 4,
+        pointBackgroundColor: C_ACTUAL,
+        pointBorderColor: C_ACTUAL,
+        fill: false,
+        tension: 0.25,
+      },
+    ],
+  };
+
+  const options: ChartOptions<"line"> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    layout: { padding: { bottom: 40 } },
+    plugins: {
+      // 휠=확대/축소, 드래그=좌우 이동, 더블클릭=리셋 (x축 기준)
+      zoom: {
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: "x",
+        },
+        pan: { enabled: true, mode: "x" },
+        limits: { x: { minRange: 3 } },
+      },
+      legend: {
+        display: true,
+        position: "bottom",
+        labels: {
+          boxWidth: 18,
+          boxHeight: 2,
+          font: { size: 12 },
+          color: "#20223c",
+          // 음영(상한/하한) 데이터셋은 범례에서 숨김
+          filter: (item) => item.text === "실제 측정 데이터" || item.text === "아신씨엔티 모델",
+        },
+      },
+      tooltip: {
+        filter: (item) => item.dataset.label === "실제 측정 데이터" || item.dataset.label === "아신씨엔티 모델",
+        usePointStyle: true,
+        // 툴팁을 점 아래로 고정 (점을 가리지 않게)
+        position: "belowLowest" as any,
+        yAlign: "top",
+        caretPadding: 8,
+        callbacks: {
+          // 툴팁 제목 = 날짜 + 시각 (하루 안 2h 점들 구별용: "07-05 02시")
+          title: (items) => {
+            const i = items[0]?.dataIndex;
+            if (i == null) return "";
+            const ds = points[i]?.ds ?? "";
+            const [date, time] = ds.split("T");
+            const md = date ? date.slice(5) : "";
+            const hh = time ? Number(time.slice(0, 2)) : "";
+            return `${md} ${hh}시`;
+          },
+          // 툴팁 색상 박스를 선 색과 일치
+          labelColor: (item) => {
+            const c = item.dataset.label === "실제 측정 데이터" ? C_ACTUAL : C_PRED;
+            return { borderColor: c, backgroundColor: c };
+          },
+          // 이 시점 LSTM이 생성한 커널 파라미터 Θ (실시간 조정 확인용)
+          afterBody: (items) => {
+            const i = items[0]?.dataIndex;
+            if (i == null) return [];
+            const th = points[i]?.theta;
+            if (!th) return [];
+            return [
+              "",
+              `θ₁ ${th[0].toFixed(2)} · θ₂ ${th[1].toFixed(2)} · θ₃ ${th[2].toFixed(2)}`,
+            ];
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: {
+          color: "#a9a9b8",
+          font: { size: 9, family: "monospace" },
+          maxTicksLimit: 5,
+          autoSkip: true,
+          maxRotation: 0,
+        },
+      },
+      y: {
+        grid: { color: "#e4e4ec" },
+        ticks: {
+          color: "#a9a9b8",
+          font: { size: 9, family: "monospace" },
+          maxTicksLimit: 3,
+          callback: (v) => Number(v).toFixed(1),
+        },
+      },
+    },
+  };
+
+  return (
+    <div
+      style={{ height: H, marginTop: 10 }}
+      onDoubleClick={() => chartRef.current?.resetZoom()}
+      title="휠=확대/축소 · 드래그=이동 · 더블클릭=리셋"
+    >
+      <Line ref={chartRef} data={data} options={options} />
+    </div>
+  );
+}
