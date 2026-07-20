@@ -17,6 +17,8 @@ export default function Dashboard() {
   const [range, setRange] = useState<{ from: string; to: string }>({ from: "", to: "" });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [inserting, setInserting] = useState(false);
+  const [insertMsg, setInsertMsg] = useState("");
 
   // 모델·데이터 로드
   useEffect(() => {
@@ -35,8 +37,7 @@ export default function Dashboard() {
     [sensors, site]
   );
   
-
- 
+  console.log(data,'데이터값')
 
   // 현장 선택 → 그 현장 크랙 전부 실시간 추론
   useEffect(() => {
@@ -70,8 +71,40 @@ export default function Dashboard() {
   const recentActive = (days: number) =>
     !!bounds && range.to === bounds.max && range.from === [addDays(bounds.max, -(days - 1)), bounds.min].sort()[1];
 
+  // 현재 현장 크랙들의 예측값(pred)을 DB(AI_Data)에 insert.
+  // 서버 라우트에서 sensor_id가 DB에 없을 때만 넣음(중복 방지).
+  const insertToDB = async () => {
+    if (!siteCracks.length) return;
+    setInserting(true); setInsertMsg("");
+    try {
+      // sensor_id = sensors.json 키(=크랙 id), measured_at = ds, converted_x = pred
+      const rows = siteCracks.flatMap((id) =>
+        (data[id] ?? []).map((p) => ({ sensor_id: id, ds: p.ds, pred: p.pred }))
+      );
+      if (!rows.length) { setInsertMsg("insert할 예측값이 없습니다."); setInserting(false); return; }
+      const res = await fetch("/api/insert-predictions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setInsertMsg("실패: " + (j.error ?? res.status));
+      } else {
+        const skipped = (j.skipped ?? []).length;
+        setInsertMsg(
+          `완료: ${j.inserted}행 insert` +
+          (skipped ? ` · 이미 존재해 건너뛴 sensor ${skipped}개` : "")
+        );
+      }
+    } catch (e: any) {
+      setInsertMsg("오류: " + e.message);
+    }
+    setInserting(false);
+  };
+
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       {/* ── 헤더 ── */}
       <header style={{ position: "relative", overflow: "hidden", padding: "34px 32px" }}>
         <div style={{
@@ -122,13 +155,26 @@ export default function Dashboard() {
                   color: recentActive(d) ? "#fff" : "var(--ink)",
                 }}>최근 {d}일</button>
             ))}
+
+            {/* 현재 현장 예측값을 DB에 저장 (sensor_id 없을 때만) 
+            <button onClick={insertToDB} disabled={inserting || loading || !siteCracks.length}
+              style={{
+                padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
+                cursor: inserting ? "wait" : "pointer", border: "1px solid var(--orange)",
+                background: "var(--orange)", color: "#fff", opacity: inserting || !siteCracks.length ? 0.6 : 1,
+              }}>{inserting ? "저장 중…" : "이 현장 DB 저장"}</button>
+            {insertMsg && (
+              <span style={{ fontSize: 13, color: "var(--navy)" }}>{insertMsg}</span>
+            )}
+              */}
           </div>
         </div>
       </header>
 
       {/* ── 본문 ── */}
-      <main style={{ background: "var(--panel)", borderTop: "1px solid var(--border)", minHeight: 400 }}>
-        <div style={{ maxWidth: 1160, margin: "0 auto", padding: "26px 32px 60px" }}>
+      <main style={{ background: "var(--panel)", flex: 1,
+        borderTop: "1px solid var(--border)", minHeight: 400 }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto", padding: "40px 32px 60px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>{site || "—"}</h2>
             <span style={{ color: "var(--muted)", fontSize: 13 }}>
