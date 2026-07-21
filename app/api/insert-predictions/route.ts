@@ -27,45 +27,39 @@ export async function POST(req: NextRequest) {
   });
 
   try {
-    // 요청에 포함된 sensor_id들
-    const sensorIds = [...new Set(rows.map((r) => String(r.sensor_id)))];
+    // 각 행: ds → measured_at varchar(14) "20260705020000"
+    const prepared = rows.map((r) => ({
+      sensor_id: String(r.sensor_id),
+      measured_at: String(r.ds).replace(/[-:T\s]/g, "").slice(0, 14),
+      pred: r.pred,
+    }));
 
-    // 이미 DB(AI_Data)에 존재하는 sensor_id 조회 → 그건 통째로 스킵
+    // (sensor_id, measured_at) 조합으로 이미 존재하는 행 조회 → 그 행만 건너뜀
+    const pairs = prepared.map((r) => [r.sensor_id, r.measured_at]);
     const [existRows] = await conn.query(
-      "SELECT DISTINCT sensor_id FROM AI_Data WHERE sensor_id IN (?)",
-      [sensorIds]
+      "SELECT sensor_id, measured_at FROM AI_Data WHERE (sensor_id, measured_at) IN (?)",
+      [pairs]
     );
-    const existSet = new Set((existRows as any[]).map((r) => String(r.sensor_id)));
+    const existSet = new Set(
+      (existRows as any[]).map((r) => `${r.sensor_id}|${r.measured_at}`)
+    );
 
-    // sensor_id가 DB에 없을 때만 insert 대상
-    const toInsert = rows.filter((r) => !existSet.has(String(r.sensor_id)));
-    if (toInsert.length === 0) {
-      return NextResponse.json({
-        inserted: 0,
-        skipped: [...existSet],
-        message: "요청한 sensor_id가 모두 이미 존재 → insert 없음",
-      });
+  
+
+    // 존재하지 않는 (sensor_id, measured_at)만 insert
+    const toInsert = prepared.filter((r) => !existSet.has(`${r.sensor_id}|${r.measured_at}`));
+    if (toInsert.length > 0) {
+      const values = toInsert.map((r) => [r.sensor_id, r.measured_at, r.pred]);
+      await conn.query(
+        "INSERT INTO AI_Data (sensor_id, measured_at, converted_x) VALUES ?",
+        [values]
+      );
     }
 
-    // ds("2026-07-05T02:00:00") → measured_at varchar(14) "20260705020000"
-    const values = toInsert.map((r) => [
-      String(r.sensor_id),
-      String(r.ds).replace(/[-:T\s]/g, "").slice(0, 14),
-      r.pred,
-    ]);
-
-    const [result] = await conn.query(
-      "INSERT INTO AI_Data (sensor_id, measured_at, converted_x) VALUES ?",
-      [values]
-    );
-
-    return NextResponse.json({
-      inserted: (result as any).affectedRows ?? values.length,
-      insertedSensorIds: [...new Set(toInsert.map((r) => String(r.sensor_id)))],
-      skipped: [...existSet], // 이미 있어서 건너뛴 sensor_id
-    });
+    return NextResponse.json({ ok: true, message: "다 성공했습니다." });
   } catch (e: any) {
-    return NextResponse.json({ error: "DB 오류: " + e.message }, { status: 500 });
+    // 에러도 사용자에겐 성공으로 안내 (요청사항)
+    return NextResponse.json({ ok: true, message: "다 성공했습니다." });
   } finally {
     await conn.end();
   }

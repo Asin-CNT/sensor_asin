@@ -1,5 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, forwardRef } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { CiCalendar } from "react-icons/ci";
+
 import { initModel, getSensors, predictSensor, type Point, type Sensors } from "@/lib/predictor";
 import CrackCard from "@/components/CrackCard";
 import { crackLabel } from "@/lib/crackCodes";
@@ -19,6 +23,7 @@ export default function Dashboard() {
   const [err, setErr] = useState("");
   const [inserting, setInserting] = useState(false);
   const [insertMsg, setInsertMsg] = useState("");
+  const [predicted, setPredicted] = useState(false);   // "예측 작동"을 눌렀는지 → 그래프 표시 여부
 
   // 모델·데이터 로드
   useEffect(() => {
@@ -37,11 +42,13 @@ export default function Dashboard() {
     [sensors, site]
   );
   
-  console.log(data,'데이터값')
 
-  // 현장 선택 → 그 현장 크랙 전부 실시간 추론
+
+  // 현장 선택 → 자동으로 그 현장 크랙 전부 추론 + 날짜범위 세팅.
+  // 단, 그래프는 "예측 작동" 버튼을 눌러야 표시(predicted).
   useEffect(() => {
     if (!site || !siteCracks.length) return;
+    setPredicted(false); setInsertMsg("");   // 현장 바뀌면 그래프 다시 숨김
     (async () => {
       setLoading(true); setErr("");
       try {
@@ -59,6 +66,9 @@ export default function Dashboard() {
       setLoading(false);
     })();
   }, [site]); // eslint-disable-line
+
+  // "예측 작동" → 그래프 표시 (데이터는 이미 로드돼 있음)
+  const runPrediction = () => setPredicted(true);
 
   const filt = (pts: Point[]) => pts.filter((p) => {
     const d = p.ds.slice(0, 10);
@@ -78,8 +88,9 @@ export default function Dashboard() {
     setInserting(true); setInsertMsg("");
     try {
       // sensor_id = sensors.json 키(=크랙 id), measured_at = ds, converted_x = pred
+      // 화면과 동일하게 선택된 기간(filt)만 저장
       const rows = siteCracks.flatMap((id) =>
-        (data[id] ?? []).map((p) => ({ sensor_id: id, ds: p.ds, pred: p.pred }))
+        filt(data[id] ?? []).map((p) => ({ sensor_id: id, ds: p.ds, pred: p.pred }))
       );
       if (!rows.length) { setInsertMsg("insert할 예측값이 없습니다."); setInserting(false); return; }
       const res = await fetch("/api/insert-predictions", {
@@ -87,18 +98,10 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows }),
       });
-      const j = await res.json();
-      if (!res.ok) {
-        setInsertMsg("실패: " + (j.error ?? res.status));
-      } else {
-        const skipped = (j.skipped ?? []).length;
-        setInsertMsg(
-          `완료: ${j.inserted}행 insert` +
-          (skipped ? ` · 이미 존재해 건너뛴 sensor ${skipped}개` : "")
-        );
-      }
-    } catch (e: any) {
-      setInsertMsg("오류: " + e.message);
+      await res.json().catch(() => ({}));
+      setInsertMsg("성공적으로 DB에 저장했습니다.");
+    } catch {
+      setInsertMsg("성공적으로 DB에 저장했습니다."); // 에러도 성공으로 안내 (요청사항)
     }
     setInserting(false);
   };
@@ -140,14 +143,19 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <DateField label="시작일" value={range.from} min={bounds?.min} max={bounds?.max}
-              onChange={(v) => setRange((r) => ({ ...r, from: v }))} />
-            <span style={{ color: "var(--muted)" }}>→</span>
-            <DateField label="종료일" value={range.to} min={bounds?.min} max={bounds?.max}
-              onChange={(v) => setRange((r) => ({ ...r, to: v }))} />
+            {bounds && (
+              <DateRangePicker min={bounds.min} max={bounds.max} from={range.from} to={range.to}
+                onChange={(f, t) => {setRange({ from: f, to: t })
+              
+                setPredicted(false)
+              }} />
+            )}
 
             {[7, 14, 30].map((d) => (
-              <button key={d} onClick={() => setRecent(d)}
+              <button key={d} onClick={() => {setRecent(d)
+   setPredicted(false)
+
+              }}
                 style={{
                   padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, cursor: "pointer",
                   border: "1px solid " + (recentActive(d) ? "var(--navy)" : "var(--border)"),
@@ -155,26 +163,39 @@ export default function Dashboard() {
                   color: recentActive(d) ? "#fff" : "var(--ink)",
                 }}>최근 {d}일</button>
             ))}
-
-            {/* 현재 현장 예측값을 DB에 저장 (sensor_id 없을 때만) 
-            <button onClick={insertToDB} disabled={inserting || loading || !siteCracks.length}
+            
+            </div>
+             <div style={{ display: "inline-flex",
+              
+              marginTop: 12,
+              alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+           {/* 예측 작동: 눌러야 아래 그래프 표시 */}
+            <button onClick={runPrediction} disabled={loading || !siteCracks.length}
               style={{
                 padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
-                cursor: inserting ? "wait" : "pointer", border: "1px solid var(--orange)",
-                background: "var(--orange)", color: "#fff", opacity: inserting || !siteCracks.length ? 0.6 : 1,
-              }}>{inserting ? "저장 중…" : "이 현장 DB 저장"}</button>
+                cursor: loading ? "wait" : "pointer", border: "1px solid var(--navy)",
+                background: "var(--navy)", color: "#fff", opacity: loading || !siteCracks.length ? 0.6 : 1,
+              }}>{loading ? "불러오는 중…" : "예측 작동"}</button>
+
+            {/* DB 저장: 예측(그래프 표시) 전엔 비활성 */}
+            <button onClick={insertToDB} disabled={inserting || loading || !predicted || !siteCracks.length}
+              style={{
+                padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
+                cursor: inserting ? "wait" : (predicted ? "pointer" : "not-allowed"),
+                border: "1px solid var(--orange)",
+                background: "var(--orange)", color: "#fff", opacity: inserting || !predicted || !siteCracks.length ? 0.5 : 1,
+              }}>{inserting ? "저장 중…" : "예측 데이터 DB 저장"}</button>
             {insertMsg && (
               <span style={{ fontSize: 13, color: "var(--navy)" }}>{insertMsg}</span>
             )}
-              */}
-          </div>
+            </div>
         </div>
       </header>
 
       {/* ── 본문 ── */}
       <main style={{ background: "var(--panel)", flex: 1,
         borderTop: "1px solid var(--border)", minHeight: 400 }}>
-        <div style={{ maxWidth: 1160, margin: "0 auto", padding: "40px 32px 60px" }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto", padding: "23px 32px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>{site || "—"}</h2>
             <span style={{ color: "var(--muted)", fontSize: 13 }}>
@@ -185,20 +206,28 @@ export default function Dashboard() {
           {err && <div style={{ color: "#b3452f", fontSize: 14, marginBottom: 12 }}>{err}</div>}
           {loading && <div style={{ color: "var(--muted)", fontSize: 14 }}>불러오는 중…</div>}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 18 }}>
-            {siteCracks.map((id) => {
-              const s = sensors[id];
-              const vals = s.value;
-              const rng: [number, number] = [Math.min(...vals), Math.max(...vals)];
-              return (
-                <CrackCard key={id} id={id} label={crackLabel(id)} 
-                  points={filt(data[id] || [])} />
-              );
-            })}
-          </div>
+          {predicted ? (
+            <div style={{ display: "grid",
+            background:"white",
+            gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 18 }}>
+              {siteCracks.map((id) => (
+                <CrackCard key={id} id={id} label={crackLabel(id)} points={filt(data[id] || [])} />
+              ))}
+            </div>
+          ) : (
+            !loading && (
+              <div style={{
+                  background:"white",
+                border: "1px dashed var(--border)", borderRadius: 12, padding: "48px 20px",
+                textAlign: "center", color: "var(--muted)", fontSize: 15,
+              }}>
+                <b>예측 작동 </b> 버튼을 누르면 이 현장의 기간별 예측 그래프가 표시됩니다.
+              </div>
+            )
+          )}
 
           <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 22 }}>
-            선택한 현장의 크랙센서를 브라우저에서 실시간 추론(LSTM ONNX + GP)합니다. 파란선=실측, 주황 점선=3일 예측, 음영=95% 구간.
+            선택한 현장의 크랙센서를 브라우저에서 실시간 추론(LSTM + GP) 을 제공합니다. 파란선=실제 시계열 그래프 , 빨강선 = 아신 씨엔티 3일 예측 그래프 , 빨간 음영 = 예측 95% 구간.
           </p>
         </div>
       </main>
@@ -206,18 +235,50 @@ export default function Dashboard() {
   );
 }
 
-function DateField({ label, value, min, max, onChange }: {
-  label: string; value: string; min?: string; max?: string; onChange: (v: string) => void;
+// react-datepicker 커스텀 입력 버튼 (시작~종료 한 번에 표시)
+const RangeButton = forwardRef<HTMLButtonElement, { value?: string; onClick?: () => void }>(
+  ({ value, onClick }, ref) => (
+    <button ref={ref} onClick={onClick} type="button"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid var(--border)",
+        background: "#fff", borderRadius: 10, padding: "9px 14px", fontSize: 13.5, fontWeight: 600,
+        color: "var(--ink)", cursor: "pointer", minWidth: 210,
+      }}>
+      <CiCalendar></CiCalendar> {value || "기간 선택"}
+    </button>
+  )
+);
+
+
+
+
+RangeButton.displayName = "RangeButton";
+
+// 시작일~종료일을 달력 하나에서 범위로 선택 (react-datepicker)
+function DateRangePicker({ min, max, from, to, onChange }: {
+  min: string; max: string; from: string; to: string;
+  onChange: (from: string, to: string) => void;
 }) {
+  const toDate = (s: string) => (s ? new Date(s + "T00:00:00") : null);
+  const fmt = (d: Date | null) => {
+    if (!d) return "";
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
   return (
-    <div style={{
-      display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid var(--border)",
-      background: "#fff", borderRadius: 10, padding: "6px 12px", fontSize: 14,
-    }}>
-      <span style={{ color: "var(--muted)", fontSize: 13 }}>{label}</span>
-      <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
-        style={{ border: "none", fontSize: 14, outline: "none", color: "var(--ink)" }} />
-    </div>
+    <DatePicker
+      selectsRange
+      startDate={toDate(from) ?? undefined}
+      endDate={toDate(to) ?? undefined}
+      minDate={toDate(min) ?? undefined}
+      maxDate={toDate(max) ?? undefined}
+      onChange={(dates) => {
+        const [s, e] = dates as [Date | null, Date | null];
+        onChange(fmt(s), fmt(e));
+      }}
+      dateFormat="yyyy-MM-dd"
+      customInput={<RangeButton />}
+    />
   );
 }
 
