@@ -183,16 +183,6 @@ function MiniChart({ points }: { points: Point[] }) {
             return { borderColor: c, backgroundColor: c };
           },
           // 이 시점 LSTM이 생성한 커널 파라미터 Θ (실시간 조정 확인용)
-          afterBody: (items) => {
-            const i = items[0]?.dataIndex;
-            if (i == null) return [];
-            const th = points[i]?.theta;
-            if (!th) return [];
-            return [
-              "",
-              `θ₁ ${th[0].toFixed(2)} · θ₂ ${th[1].toFixed(2)} · θ₃ ${th[2].toFixed(2)}`,
-            ];
-          },
         },
       },
     },
