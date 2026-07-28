@@ -119,13 +119,13 @@ export default function Dashboard() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <img src="/model/logo.jpg" width={150} height={50} alt="" />
           </div>
-          <h1 style={{ margin: "0 0 8px", fontSize: 34, letterSpacing: "-0.02em" }}>AI 기반 3일 추세 예측 모델</h1>
+          <h1 style={{ margin: "0 0 8px", fontSize: 34, letterSpacing: "-0.02em" }}>AI 기반 예측 모델</h1>
           <p style={{ margin: "10px 0", color: "var(--muted)", fontSize: 15 }}>
             현장과 기간을 선택하면 해당 크랙센서 그래프가 실시간으로 기간에 맞춰 반영됩니다.
           </p>
           <p style={{ margin: 0, color: "var(--muted)", fontSize: 15 }}>
 
-최근 3일 데이터(2시간 간격)를 기반으로 3일 후 시점의 데이터를 예측합니다.
+최근 데이터를 기반으로 미래 시점의 데이터를 예측합니다.
 
           </p>
 
@@ -227,7 +227,7 @@ export default function Dashboard() {
           )}
 
           <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 22 }}>
-            선택한 현장의 크랙센서를 브라우저에서 실시간 추론(LSTM + GP) 을 제공합니다. 파란선=실제 시계열 그래프 , 빨강선 = 아신 씨엔티 3일 예측 그래프 , 빨간 음영 = 예측 95% 구간.
+            선택한 현장의 크랙센서를 브라우저에서 실시간 추론(LSTM + GP) 을 제공합니다. 파란선=실제 시계열 그래프 , 빨강선 = 아신 씨엔티 예측 그래프 , 빨간 음영 = 예측 95% 구간.
           </p>
         </div>
       </main>

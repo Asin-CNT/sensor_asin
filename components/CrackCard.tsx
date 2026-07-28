@@ -36,6 +36,16 @@ export default function CrackCard({
   const errMin = diffs.length ? Math.min(...diffs) : null;
   const errMax = diffs.length ? Math.max(...diffs) : null;
 
+  // 95% 구간 적중률: 실측이 [lo, hi] 안에 들어가면 1, 아니면 0 → 평균
+  const valid = points.filter(
+    (p) => Number.isFinite(p.actual) && Number.isFinite(p.lo) && Number.isFinite(p.hi)
+  );
+  const hits = valid.reduce(
+    (acc, p) => acc + (p.actual >= Math.min(p.lo, p.hi) && p.actual <= Math.max(p.lo, p.hi) ? 1 : 0),
+    0
+  );
+  const coverage = valid.length ? (hits / valid.length) * 100 : null;
+
   return (
     <div style={{
       background: "#fff", border: "1px solid var(--border)", borderRadius: 14,
@@ -62,6 +72,12 @@ export default function CrackCard({
           {errMin != null && errMax != null
             ? `${errMin.toFixed(2)}–${errMax.toFixed(2)}mm`
             : "—"}
+        </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>예측 정확도 (95% 구간 적중률)</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+          {coverage != null ? `${coverage.toFixed(1)}%` : "—"}
         </span>
       </div>
     </div>
