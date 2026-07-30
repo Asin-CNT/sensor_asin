@@ -4,10 +4,10 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 // react-icons는 세트별로 경로가 다름: Ci* → /ci , Md* → /md
 import { CiCalendar } from "react-icons/ci";
-import { MdOutlineAutoGraph } from "react-icons/md";
+import { MdOutlineAutoGraph, MdOutlineSaveAlt } from "react-icons/md";
 
 import { initModel, getSensors, predictSensor, type Point, type Sensors } from "@/lib/predictor";
-import CrackCard, { type SaveState } from "@/components/CrackCard";
+import CrackCard from "@/components/CrackCard";
 import { crackLabel, TARGET_SENSOR_IDS, TARGET_CRACK_CODES } from "@/lib/crackCodes";
 
 // 페이지 좌우 여백 — 헤더/본문이 같은 폭·같은 패딩을 쓰도록 한 곳에서 관리.
@@ -30,9 +30,9 @@ export default function Dashboard() {
   const [range, setRange] = useState<{ from: string; to: string }>({ from: "", to: "" });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [predicted, setPredicted] = useState(false);   // "예측 작동"을 눌렀는지 → 그래프 표시 여부
-  // 센서별 DB 저장 상태 (카드 안 버튼에서 각각 저장)
-  const [saveState, setSaveState] = useState<Record<string, SaveState>>({});
+  const [predicted, setPredicted] = useState(false);   // "예측 실행"을 눌렀는지 → 그래프 표시 여부
+  const [inserting, setInserting] = useState(false);
+  const [insertMsg, setInsertMsg] = useState("");
 
   // 모델·데이터 로드
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function Dashboard() {
   // 단, 그래프는 "예측 작동" 버튼을 눌러야 표시(predicted).
   useEffect(() => {
     if (!targetCracks.length) return;
-    setPredicted(false); setSaveState({});
+    setPredicted(false); setInsertMsg("");
     (async () => {
       setLoading(true); setErr("");
       try {
@@ -94,26 +94,29 @@ export default function Dashboard() {
   const recentActive = (days: number) =>
     !!bounds && range.to === bounds.max && range.from === [addDays(bounds.max, -(days - 1)), bounds.min].sort()[1];
 
-  // 센서 1개의 예측값(pred)을 DB(AI_Data)에 insert. (카드 안 버튼 → 각 센서별로 저장)
+  // 조회 결과 전체(표시 중인 센서 10개 · 선택 기간)의 예측값(pred)을 DB(AI_Data)에 일괄 insert.
   // 서버 라우트에서 sensor_id가 DB에 없을 때만 넣음(중복 방지).
-  const insertOne = async (id: string) => {
-    if (saveState[id] === "saving") return;
-    setSaveState((s) => ({ ...s, [id]: "saving" }));
+  const insertToDB = async () => {
+    if (!targetCracks.length) return;
+    setInserting(true); setInsertMsg("");
     try {
       // sensor_id = sensors.json 키(=크랙 id), measured_at = ds, converted_x = pred
       // 화면과 동일하게 선택된 기간(filt)만 저장
-      const rows = filt(data[id] ?? []).map((p) => ({ sensor_id: id, ds: p.ds, pred: p.pred }));
-      if (!rows.length) { setSaveState((s) => ({ ...s, [id]: "empty" })); return; }
+      const rows = targetCracks.flatMap((id) =>
+        filt(data[id] ?? []).map((p) => ({ sensor_id: id, ds: p.ds, pred: p.pred }))
+      );
+      if (!rows.length) { setInsertMsg("insert할 예측값이 없습니다."); setInserting(false); return; }
       const res = await fetch("/api/insert-predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows }),
       });
       await res.json().catch(() => ({}));
-      setSaveState((s) => ({ ...s, [id]: "done" }));
+      setInsertMsg("성공적으로 DB에 저장했습니다.");
     } catch {
-      setSaveState((s) => ({ ...s, [id]: "done" })); // 에러도 성공으로 안내 (요청사항)
+      setInsertMsg("성공적으로 DB에 저장했습니다."); // 에러도 성공으로 안내 (요청사항)
     }
+    setInserting(false);
   };
 
   return (
@@ -157,14 +160,14 @@ export default function Dashboard() {
                   onChange={(f, t) => {setRange({ from: f, to: t })
 
                   setPredicted(false)
-                  setSaveState({})   // 기간이 바뀌면 저장 상태 초기화
+                  setInsertMsg("")   // 기간이 바뀌면 저장 안내문 초기화
                 }} />
               )}
 
               {[7, 14, 30].map((d) => (
                 <button key={d} className="btn-chip" onClick={() => {setRecent(d)
      setPredicted(false)
-     setSaveState({})
+     setInsertMsg("")
 
                 }}
                   style={{
@@ -176,22 +179,41 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 실행 버튼이라 오른쪽 끝으로 분리 (눌러야 아래 그래프 표시)
-                배경·hover 색은 globals.css 의 .btn-run 에서 관리 */}
-            <button className="btn-run" onClick={runPrediction} disabled={loading || !targetCracks.length}
-              style={{
-                marginLeft: "auto",
-                display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "11px 22px", borderRadius: 999, fontSize: 14, fontWeight: 700,
-                cursor: loading ? "wait" : "pointer", border: "none",
-                color: "#fff",
-                opacity: loading || !targetCracks.length ? 0.55 : 1,
-              }}>
-              {/* 아이콘은 currentColor를 따라가므로 hover(주황)에서도 흰색 유지 */}
-              <MdOutlineAutoGraph size={18} />
-              {loading ? "불러오는 중…" : RUN_LABEL}
-            </button>
-            {/* DB 저장은 상단이 아니라 각 센서 카드 안 버튼에서 개별로 실행 */}
+            {/* 실행 버튼 묶음 — 오른쪽 끝으로 분리 */}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              {/* 예측 실행: 눌러야 아래 그래프 표시. 배경·hover 색은 globals.css 의 .btn-run */}
+              <button className="btn-run" onClick={runPrediction} disabled={loading || !targetCracks.length}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "11px 22px", borderRadius: 999, fontSize: 14, fontWeight: 700,
+                  cursor: loading ? "wait" : "pointer", border: "none",
+                  color: "#fff",
+                  opacity: loading || !targetCracks.length ? 0.55 : 1,
+                }}>
+                {/* 아이콘은 currentColor를 따라가므로 hover(주황)에서도 흰색 유지 */}
+                <MdOutlineAutoGraph size={18} />
+                {loading ? "불러오는 중…" : RUN_LABEL}
+              </button>
+
+              {/* DB 저장: 조회 결과(표시 중인 센서 전체 · 선택 기간) 일괄 저장. 예측 실행 전엔 비활성 */}
+              <button className="btn-save" onClick={insertToDB}
+                disabled={inserting || loading || !predicted || !targetCracks.length}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "11px 22px", borderRadius: 999, fontSize: 14, fontWeight: 700,
+                  cursor: inserting ? "wait" : (predicted ? "pointer" : "not-allowed"),
+                  border: "1px solid var(--orange)",
+                  background: "var(--orange)", color: "#fff",
+                  opacity: inserting || !predicted || !targetCracks.length ? 0.5 : 1,
+                }}>
+                <MdOutlineSaveAlt size={18} />
+                {inserting ? "저장 중…" : "예측 데이터 DB 저장"}
+              </button>
+
+              {insertMsg && (
+                <span style={{ fontSize: 13, color: "var(--navy)" }}>{insertMsg}</span>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -219,8 +241,7 @@ export default function Dashboard() {
               gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
               {targetCracks.map((id) => (
                 <CrackCard key={id} id={id} label={crackLabel(id)} site={siteOf(id)}
-                  points={filt(data[id] || [])} compact
-                  onSave={() => insertOne(id)} saveState={saveState[id]} />
+                  points={filt(data[id] || [])} compact />
               ))}
             </div>
           ) : (
@@ -237,6 +258,8 @@ export default function Dashboard() {
 
           <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 14 }}>
             지정 크랙센서를 브라우저에서 실시간 추론(LSTM + GP) 합니다. 카드 제목 = 균열관리번호 · 현장명 , 파란선 = 실제 시계열 그래프 , 빨강선 = 아신 씨엔티 예측 그래프 , 빨간 음영 = 예측 95% 구간.
+            <br />
+            정확도 = 실측값이 예측 95% 구간 안에 들어온 건수 ÷ 예측 데이터 건수.
           </p>
         </div>
       </main>
@@ -287,12 +310,8 @@ function DateRangePicker({ min, max, from, to, onChange }: {
       }}
       dateFormat="yyyy-MM-dd"
       customInput={<RangeButton />}
-      // 항상 버튼 아래쪽으로 펼치기 (flip 끄기) + 헤더 overflow:hidden 회피용 포털
+      // 버튼 아래쪽으로 펼치고, 헤더의 overflow:hidden 에 잘리지 않게 body 포털(#dp-portal)로 렌더
       popperPlacement="bottom-start"
-      popperModifiers={[
-        { name: "flip", enabled: false, fn: (s: any) => s },
-        { name: "preventOverflow", options: { altAxis: false }, fn: (s: any) => s },
-      ]}
       portalId="dp-portal"
     />
   );

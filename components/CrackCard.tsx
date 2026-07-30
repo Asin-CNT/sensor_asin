@@ -26,15 +26,9 @@ ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale, Filler, 
   return { x, y };
 };
 
-// 센서별 DB 저장 상태
-export type SaveState = "saving" | "done" | "empty" | undefined;
-
 export default function CrackCard({
-  id, label, points, site, compact = false, onSave, saveState,
-}: {
-  id: string; label: string; points: Point[]; site?: string; compact?: boolean;
-  onSave?: () => void; saveState?: SaveState;
-}) {
+  id, label, points, site, compact = false,
+}: { id: string; label: string; points: Point[]; site?: string; compact?: boolean }) {
   // 같은 시각의 |예측 − 실측| 차이 → 최소/최대 (표시 기간 기준)
   const diffs = points
     .map((p) => Math.abs(p.pred - p.actual))
@@ -42,15 +36,17 @@ export default function CrackCard({
   const errMin = diffs.length ? Math.min(...diffs) : null;
   const errMax = diffs.length ? Math.max(...diffs) : null;
 
-  // 95% 구간 적중률: 실측이 [lo, hi] 안에 들어가면 1, 아니면 0 → 평균
+  // 정확도 = 예측구간 포함 건수 / 예측 데이터 건수
+  // (판정 가능한 점 = 실측·상한·하한이 모두 유효한 점, 실측이 [lo, hi] 안에 들면 "포함")
   const valid = points.filter(
     (p) => Number.isFinite(p.actual) && Number.isFinite(p.lo) && Number.isFinite(p.hi)
   );
-  const hits = valid.reduce(
+  const total = valid.length;                       // 예측 데이터 건수
+  const hits = valid.reduce(                        // 예측구간 포함 건수
     (acc, p) => acc + (p.actual >= Math.min(p.lo, p.hi) && p.actual <= Math.max(p.lo, p.hi) ? 1 : 0),
     0
   );
-  const coverage = valid.length ? (hits / valid.length) * 100 : null;
+  const coverage = total ? (hits / total) * 100 : null;
 
   const fs = compact ? 11.5 : 12.5;   // 통계 줄 글자 크기
 
@@ -90,37 +86,23 @@ export default function CrackCard({
         </span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
-        <span style={{ fontSize: fs, color: "var(--muted)" }}>
-          {compact ? "예측 정확도 (95%)" : "예측 정확도 (95% 구간 적중률)"}
-        </span>
-        <span style={{ fontSize: fs, color: "var(--muted)" }}>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>예측 데이터 건수</span>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>{total}건</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>예측구간 포함 건수</span>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>{total ? `${hits}건` : "—"}</span>
+      </div>
+      {/* 정확도 = 포함 건수 / 전체 건수 → 카드에서 가장 중요한 수치라 강조 */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "baseline",
+        marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--border)",
+      }}>
+        <span style={{ fontSize: fs, color: "var(--ink)", fontWeight: 600 }}>정확도</span>
+        <span style={{ fontSize: compact ? 12.5 : 13.5, color: "var(--navy)", fontWeight: 700 }}>
           {coverage != null ? `${coverage.toFixed(1)}%` : "—"}
         </span>
       </div>
-
-      {/* 이 센서만 DB 저장 (표시 중인 기간의 예측값) */}
-      {onSave && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: compact ? 8 : 12 }}>
-          <button className="btn-save" onClick={onSave}
-            disabled={saveState === "saving" || !points.length}
-            style={{
-              flex: 1, padding: compact ? "7px 10px" : "9px 14px", borderRadius: 9,
-              fontSize: compact ? 12 : 13.5, fontWeight: 600,
-              border: "1px solid var(--orange)",
-              background: saveState === "done" ? "#fff" : "var(--orange)",
-              color: saveState === "done" ? "var(--orange)" : "#fff",
-              cursor: saveState === "saving" ? "wait" : (points.length ? "pointer" : "not-allowed"),
-              opacity: !points.length ? 0.45 : 1,
-            }}>
-            {saveState === "saving" ? "저장 중…"
-              : saveState === "done" ? "저장 완료 · 다시 저장"
-              : "예측 데이터 DB 저장"}
-          </button>
-          {saveState === "empty" && (
-            <span style={{ fontSize: fs, color: "#b3452f", whiteSpace: "nowrap" }}>저장할 값 없음</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
