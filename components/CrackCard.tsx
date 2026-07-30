@@ -26,9 +26,15 @@ ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale, Filler, 
   return { x, y };
 };
 
+// 센서별 DB 저장 상태
+export type SaveState = "saving" | "done" | "empty" | undefined;
+
 export default function CrackCard({
-  id, label, points,
-}: { id: string; label: string; points: Point[] }) {
+  id, label, points, site, compact = false, onSave, saveState,
+}: {
+  id: string; label: string; points: Point[]; site?: string; compact?: boolean;
+  onSave?: () => void; saveState?: SaveState;
+}) {
   // 같은 시각의 |예측 − 실측| 차이 → 최소/최대 (표시 기간 기준)
   const diffs = points
     .map((p) => Math.abs(p.pred - p.actual))
@@ -46,40 +52,75 @@ export default function CrackCard({
   );
   const coverage = valid.length ? (hits / valid.length) * 100 : null;
 
+  const fs = compact ? 11.5 : 12.5;   // 통계 줄 글자 크기
+
   return (
     <div style={{
       background: "#fff", border: "1px solid var(--border)", borderRadius: 14,
-      padding: "16px 16px 14px", boxShadow: "var(--shadow)",
+      padding: compact ? "10px 12px 10px" : "16px 16px 14px", boxShadow: "var(--shadow)",
     }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      {/* 균열관리번호 + 현장명 (현장 선택 없이 카드마다 현장을 함께 표기) */}
+      <div style={{ display: "flex", 
+        justifyContent: "space-between",
+        alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 7, background: "var(--badge-bg)",
-          color: "var(--navy)", fontWeight: 600, fontSize: 13, padding: "5px 12px", borderRadius: 999,
+          color: "var(--navy)", fontWeight: 600, fontSize: compact ? 12 : 13,
+          padding: compact ? "4px 10px" : "5px 12px", borderRadius: 999, flexShrink: 0,
         }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--orange)" }} />
           {label}
         </span>
+        {site && (
+          <span title={site} style={{
+            fontSize: compact ? 11.5 : 12.5, color: "var(--muted)", minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{site}</span>
+        )}
       </div>
 
-      <MiniChart points={points} />
+      <MiniChart points={points} compact={compact} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
-      
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>예측 오차 |예측−실측|</span>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: compact ? 6 : 14 }}>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>예측 오차 |예측−실측|</span>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>
           {errMin != null && errMax != null
             ? `${errMin.toFixed(2)}–${errMax.toFixed(2)}mm`
             : "—"}
         </span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>예측 정확도 (95% 구간 적중률)</span>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>
+          {compact ? "예측 정확도 (95%)" : "예측 정확도 (95% 구간 적중률)"}
+        </span>
+        <span style={{ fontSize: fs, color: "var(--muted)" }}>
           {coverage != null ? `${coverage.toFixed(1)}%` : "—"}
         </span>
       </div>
+
+      {/* 이 센서만 DB 저장 (표시 중인 기간의 예측값) */}
+      {onSave && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: compact ? 8 : 12 }}>
+          <button className="btn-save" onClick={onSave}
+            disabled={saveState === "saving" || !points.length}
+            style={{
+              flex: 1, padding: compact ? "7px 10px" : "9px 14px", borderRadius: 9,
+              fontSize: compact ? 12 : 13.5, fontWeight: 600,
+              border: "1px solid var(--orange)",
+              background: saveState === "done" ? "#fff" : "var(--orange)",
+              color: saveState === "done" ? "var(--orange)" : "#fff",
+              cursor: saveState === "saving" ? "wait" : (points.length ? "pointer" : "not-allowed"),
+              opacity: !points.length ? 0.45 : 1,
+            }}>
+            {saveState === "saving" ? "저장 중…"
+              : saveState === "done" ? "저장 완료 · 다시 저장"
+              : "예측 데이터 DB 저장"}
+          </button>
+          {saveState === "empty" && (
+            <span style={{ fontSize: fs, color: "#b3452f", whiteSpace: "nowrap" }}>저장할 값 없음</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -87,8 +128,8 @@ export default function CrackCard({
 const C_ACTUAL = "#5a67b8"; // 실측 (파랑, --line)
 const C_PRED = "#e11d48";   // 예측 · 우리 모델 (빨강)
 
-function MiniChart({ points }: { points: Point[] }) {
-  const H = 220;
+function MiniChart({ points, compact = false }: { points: Point[]; compact?: boolean }) {
+  const H = compact ? 132 : 220;   // 10개를 한 화면에 담기 위한 축소 높이
   const chartRef = useRef<ChartJS<"line"> | null>(null);
   if (!points.length) {
     return <div style={{ height: H, display: "grid", placeItems: "center", color: "var(--muted)", fontSize: 13 }}>데이터 없음</div>;
@@ -151,7 +192,7 @@ function MiniChart({ points }: { points: Point[] }) {
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: "index", intersect: false },
-    layout: { padding: { bottom: 40 } },
+    layout: { padding: { bottom: compact ? 0 : 40 } },
     plugins: {
       // 휠=확대/축소, 드래그=좌우 이동, 더블클릭=리셋 (x축 기준)
       zoom: {
@@ -164,7 +205,8 @@ function MiniChart({ points }: { points: Point[] }) {
         limits: { x: { minRange: 3 } },
       },
       legend: {
-        display: true,
+        // 압축 모드에선 카드마다 범례가 반복돼 자리만 차지 → 하단 안내문으로 대체
+        display: !compact,
         position: "bottom",
         labels: {
           boxWidth: 18,

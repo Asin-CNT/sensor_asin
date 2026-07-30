@@ -22,3 +22,32 @@ body {
 }
 button, input, select { font-family: inherit; }
 input[type="date"] { color: var(--ink); }
+
+/* ── 실행 버튼 (예측 작동) ──
+   배경을 CSS에서 정의(인라인 style이 hover를 덮지 않도록). hover 시 네이비 → 주황 */
+.btn-run {
+  background: linear-gradient(135deg, var(--navy), #4b4f86);
+  box-shadow: 0 6px 16px rgba(32, 34, 60, 0.22);
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+}
+.btn-run:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--orange), #f5904f);
+  box-shadow: 0 8px 20px rgba(236, 106, 52, 0.34);
+  transform: translateY(-1px);
+}
+.btn-run:active:not(:disabled) { transform: translateY(0); }
+.btn-run:disabled { cursor: not-allowed; }
+
+/* ── 센서 카드 DB 저장 버튼 ── (배경은 상태별 인라인 → filter로 hover 표현) */
+.btn-save { transition: filter 0.18s ease, box-shadow 0.18s ease; }
+.btn-save:hover:not(:disabled) {
+  filter: brightness(1.07);
+  box-shadow: 0 4px 12px rgba(236, 106, 52, 0.26);
+}
+
+/* ── 날짜 달력 팝업 ── 포털(#dp-portal)로 띄우므로 다른 요소 위에 오도록 z-index 확보 */
+.react-datepicker-popper { z-index: 100; }
+
+/* ── 최근 N일 칩 버튼 ── */
+.btn-chip { transition: box-shadow 0.15s ease; }
+.btn-chip:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--navy); }

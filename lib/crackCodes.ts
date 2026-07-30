@@ -16,3 +16,19 @@ export const CRACK_CODE: Record<string, string> = {
 };
 
 export const crackLabel = (id: string): string => CRACK_CODE[id] ?? `크랙 ${id}`;
+
+// 대시보드에 고정 표시할 균열관리번호 10개 (현장 선택 없이 한 화면에 전부 표시)
+export const TARGET_CRACK_CODES = [
+  "A01-04C", "C01-05C", "E04-02C", "F03-02C", "F06-02C",
+  "F08-03C", "G04-04C", "J01-02C", "J01-03C", "K05-02C",
+];
+
+// 균열관리번호 → sensor_id 역매핑
+const CODE_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(CRACK_CODE).map(([id, code]) => [code, id])
+);
+
+// 위 10개에 해당하는 sensor_id (매핑 없는 코드는 제외)
+export const TARGET_SENSOR_IDS: string[] = TARGET_CRACK_CODES
+  .map((code) => CODE_TO_ID[code])
+  .filter(Boolean);

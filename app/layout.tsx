@@ -18,6 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body className={notoSansKr.className}>
         {children}
+        {/* 날짜 달력 팝업용 포털 — 헤더의 overflow:hidden 에 잘리지 않게 body 최상단에 렌더 */}
+        <div id="dp-portal" />
       </body>
     </html>
   );
